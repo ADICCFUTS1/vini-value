@@ -1,0 +1,20 @@
+# SvelteKit (build artifacts, se regeneran con build/dev)
+.svelte-kit/
+build/
+dist/
+
+# Dependencias
+node_modules/
+
+# Env (no subir secretos; ver .env.example)
+.env
+.env.*
+!.env.example
+
+# Vercel
+.vercel/
+
+# Logs / OS
+*.log
+.DS_Store
+Thumbs.db
