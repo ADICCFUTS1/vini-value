@@ -1,9 +1,10 @@
-// Modo 'live' = Flask http://<host>:5000 · Modo 'static' = JSON en /api/*.json (Vercel).
-// Cambiar con .env: VITE_API_MODE=static
+// Modo 'live' = Flask http://<host>:5000 · Modo 'static' = JSON en /api/*.json.
+// Default: live en dev, static en build prod (Vercel). Override con VITE_API_MODE.
 const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
 export const API_BASE = `http://${host}:5000`;
 export const MODE: 'live' | 'static' =
-	(import.meta.env.VITE_API_MODE as 'live' | 'static' | undefined) ?? 'live';
+	(import.meta.env.VITE_API_MODE as 'live' | 'static' | undefined) ??
+	(import.meta.env.PROD ? 'static' : 'live');
 const STATIC_BASE = import.meta.env.VITE_STATIC_BASE ?? '';
 
 export type ApiFixture = {
