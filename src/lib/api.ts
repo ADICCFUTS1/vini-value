@@ -75,3 +75,8 @@ export async function fetchFixture(game_id: string): Promise<any> {
 	if (!res.ok) throw new Error(`API ${res.status}`);
 	return res.json();
 }
+
+export async function fetchDates(): Promise<string[]> {
+	if (EFFECTIVE_MODE === 'static') return getJSON(`${STATIC_BASE}/api/dates.json`, []);
+	return [];
+}
