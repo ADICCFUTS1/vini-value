@@ -5,9 +5,10 @@
 const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
 const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
 export const API_BASE = `http://${host}:5000`;
-export const MODE: 'live' | 'static' =
-	(import.meta.env.VITE_API_MODE as 'live' | 'static' | undefined) ??
-	(import.meta.env.PROD || isHttps ? 'static' : 'live');
+const _env = import.meta.env.VITE_API_MODE as 'live' | 'static' | '' | undefined;
+// '' (variable vacía en Vercel) se trata como no definida: ?? no filtra strings vacíos
+const ENV_MODE: 'live' | 'static' | undefined = _env === 'live' || _env === 'static' ? _env : undefined;
+export const MODE: 'live' | 'static' = ENV_MODE ?? (import.meta.env.PROD || isHttps ? 'static' : 'live');
 const STATIC_BASE = import.meta.env.VITE_STATIC_BASE ?? '';
 
 // Override manual para debug: ?api=live | ?api=static
