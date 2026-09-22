@@ -5,12 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     %sveltekit.head%
   </head>
-  <body data-sveltekit-preload-data="hover" onmousedown="return false;" onselectstart="return false;" unselectable="on" style="-moz-user-select:none;-ms-user-select:none;-o-user-select:none;-webkit-user-select:none;user-select:none;">
+  <body data-sveltekit-preload-data="hover">
     <div style="display: contents">%sveltekit.body%</div>
-    <script>
-      document.addEventListener('contextmenu', function (e) { e.preventDefault(); });
-      document.addEventListener('selectstart', function (e) { e.preventDefault(); });
-      document.addEventListener('dragstart', function (e) { e.preventDefault(); });
-    </script>
   </body>
 </html>

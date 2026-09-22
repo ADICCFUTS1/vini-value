@@ -4,38 +4,37 @@
   import MatchCard from '$lib/MatchCard.svelte';
   import type { Match } from '$lib/matches';
   import { fetchFixturesByDate, fetchPicksByDate } from '$lib/api';
+  import { ligaName, toUniqueMatches, todayISO } from '$lib/fixtures';
+  import { marketLabel, marketColor, initials, probPct } from '$lib/markets';
 
-  const _t = new Date();
-  const hoy = `${_t.getFullYear()}-${String(_t.getMonth() + 1).padStart(2, '0')}-${String(_t.getDate()).padStart(2, '0')}`;
+  const hoy = todayISO();
   let fecha = $state(page.url.searchParams.get('fecha') ?? hoy);
   let items = $state<Match[]>([]);
   let tops = $state<Record<string, any[]>>({});
   let loading = $state(true);
+  let error = $state('');
   let liga = $state('Todas');
 
-  const short = (n: string) => (n ?? '').replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || '???';
-  const ligaName = (l: string) => l === 'ESP-La Liga' ? 'La Liga' : l === 'ENG-Premier League' ? 'Premier' : l;
   let ligas = $derived(['Todas', ...new Set(items.map((m) => m.league))]);
   let visible = $derived(liga === 'Todas' ? items : items.filter((m) => m.league === liga));
 
   async function load(d: string) {
     loading = true;
+    error = '';
     try {
       const [fr, pr] = await Promise.all([fetchFixturesByDate(d, 100), fetchPicksByDate(d, 5000)]);
-      const seen = new Map();
-      for (const f of fr) if (f.game_id && !seen.has(f.game_id)) seen.set(f.game_id, f);
-      items = [...seen.values()]
-        .sort((a, b) => String(a.time ?? '').localeCompare(String(b.time ?? '')))
-        .map((f: any) => ({
-        id: String(f.game_id), league: f.league ?? 'La Liga', date: String(f.date), time: f.time ?? '',
-        home: f.home_team, away: f.away_team, homeShort: short(f.home_team), awayShort: short(f.away_team),
-        homeColor: '#1554a0', awayColor: '#e72c45', status: 'upcoming' as const, venue: f.venue ?? ''
-      }));
+      items = toUniqueMatches(fr);
       const by: Record<string, any[]> = {};
-      for (const p of pr) (by[p.game_id] ??= []).push(p);
+      for (const p of pr) {
+        if (p?.game_id) (by[p.game_id] ??= []).push(p);
+      }
       for (const k of Object.keys(by))
         by[k] = by[k].sort((a, b) => (b.prob_calibrada ?? b.prob_calculada ?? 0) - (a.prob_calibrada ?? a.prob_calculada ?? 0)).slice(0, 3);
       tops = by;
+    } catch {
+      error = 'API no disponible.';
+      items = [];
+      tops = {};
     } finally {
       loading = false;
     }
@@ -44,34 +43,42 @@
   onMount(() => load(fecha));
 </script>
 
-<main class="page-shell"><div class="container">
-  <header class="header">
-    <!-- <a class="back" href="/fixture">←</a> -->
-    <span class="display header-title">MERCADOS</span><span class="header-spacer"></span></header>
-  <input type="date" bind:value={fecha} onchange={() => load(fecha)} aria-label="Fecha" />
+<svelte:head><title>Mercados {fecha} | Cancha</title></svelte:head>
+
+<main class="page-shell">
+  <div class="app-header"><div class="app-header-inner">
+    <div><div class="display app-title">MERCADOS</div><p class="app-sub">{fecha} · top picks por partido</p></div>
+  </div></div>
+  <div class="container">
+  <div style="margin:14px 0"><input class="date-input" type="date" bind:value={fecha} onchange={() => load(fecha)} aria-label="Fecha" /></div>
   {#if loading}<p class="muted">Cargando mercados {fecha}…</p>
+  {:else if error}<p class="muted">{error}</p>
   {:else}
-    <nav class="filters" aria-label="Filtrar liga">{#each ligas as l}<button class:active={liga === l} onclick={() => (liga = l)}>{ligaName(l)}</button>{/each}</nav>
+    <nav class="filters" aria-label="Filtrar liga">{#each ligas as l}<button class:active={liga === l} aria-pressed={liga === l} onclick={() => (liga = l)}>{ligaName(l)}</button>{/each}</nav>
     <div class="cards">{#each visible as match}
-      <MatchCard {match} />
-      <div class="top">
-        {#each tops[match.id] ?? [] as p}<span>{p.player} {p.mercado} {p.linea} · {Math.round((p.prob_calibrada ?? p.prob_calculada) * 100)}%</span>{:else}<span class="muted">Sin picks</span>{/each}
-      </div>
+      <section class="match-section" aria-label={`${match.home} contra ${match.away}`}>
+        <MatchCard {match} />
+        <div class="props-grid">
+          {#each tops[match.id] ?? [] as p}
+            {@const pct = probPct(p)}
+            {@const ml = p.mercado_label ?? marketLabel(p.mercado)}
+            {@const mc = marketColor(p.mercado)}
+            <article class="prop">
+              <div class="prop-top">
+                <span class="avatar" style={`--pill:${mc}`}>{initials(p.player)}</span>
+                <div style="min-width:0"><p class="prop-name">{p.player}</p><p class="prop-meta">{p.team} · {ml} {p.linea}</p></div>
+              </div>
+              <div class="bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`Probabilidad ${pct}%`}><i style={`width:${pct}%;--pill:${mc}`}></i></div>
+              <div class="prop-foot">
+                <span class="pill" style={`--pill:${mc}`}>{p.mercado} {p.linea}</span>
+                <span class="prob">{pct}%<small>PROB</small></span>
+              </div>
+            </article>
+          {:else}<p class="muted">Sin picks para este partido.</p>{/each}
+        </div>
+        <div class="match-section-head"><span class="muted">{(tops[match.id] ?? []).length} destacados</span><a class="link-more" href={`/estadisticas/${match.id}`}>Ver todos →</a></div>
+      </section>
     {/each}</div>
   {/if}
-</div></main>
-
-<style>
-  .header { display: flex; align-items: center; justify-content: space-between; padding: 16px 0; }
-  .back { text-decoration: none; font-size: 20px; }
-  .header-title { font-size: 13px; letter-spacing: 0.12em; }
-  .header-spacer { width: 24px; }
-  input[type='date'] { background: #151922; color: #dce3ef; border: 1px solid #252b38; border-radius: 10px; padding: 8px 10px; margin-bottom: 12px; }
-  .filters { display: flex; gap: 8px; margin: 0 0 12px; }
-  .filters button { border: 1px solid #293140; color: #8a95a8; background: transparent; border-radius: 99px; padding: 8px 16px; font-size: 12px; font-weight: 600; cursor: pointer; }
-  .filters button.active { color: #0b0d12; background: #b8f36b; border-color: #b8f36b; }
-  .cards { display: flex; flex-direction: column; gap: 4px; }
-  .top { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
-  .top span { font-size: 11px; border: 1px solid #252b38; border-radius: 99px; padding: 4px 10px; color: #dce3ef; }
-  .muted { color: #778196; font-size: 12px; }
-</style>
+  </div>
+</main>

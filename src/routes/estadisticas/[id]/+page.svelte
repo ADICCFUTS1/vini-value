@@ -3,6 +3,7 @@
   import { page } from '$app/state';
   import { getMatch } from '$lib/matches';
   import { fetchPicksByGame, fetchFixture } from '$lib/api';
+  import { marketLabel, marketColor, initials, probPct } from '$lib/markets';
 
   const id = $derived(page.params.id ?? '');
   const local = $derived(getMatch(id));
@@ -25,7 +26,7 @@
     return id;
   }
   let mercados = $derived(['Todos', ...new Set(picks.map((p) => p.mercado))]);
-  const etiquetaMercado = (m: string) => picks.find((p) => p.mercado === m)?.mercado_label ?? m;
+  const etiquetaMercado = (m: string) => picks.find((p) => p.mercado === m)?.mercado_label ?? marketLabel(m);
   let homeTeam = $derived(picks.find((p) => p.is_home === 1)?.team ?? fixture?.home_team ?? picks[0]?.team ?? '');
   let awayTeam = $derived(picks.find((p) => p.is_home === 0)?.team ?? fixture?.away_team ?? picks[0]?.team_rival ?? '');
   let tab = $state<'home' | 'away'>('home');
@@ -35,7 +36,7 @@
       (p) =>
         (!tabTeam || p.team === tabTeam) &&
         (mercado === 'Todos' || p.mercado === mercado) &&
-        (!q || p.player.toLowerCase().includes(q.toLowerCase()))
+        (!q || String(p.player ?? '').toLowerCase().includes(q.toLowerCase()))
     ).sort((a, b) => (b.prob_calibrada ?? b.prob_calculada ?? 0) - (a.prob_calibrada ?? a.prob_calculada ?? 0))
   );
 
@@ -45,8 +46,8 @@
       fixture = fx;
       picks = Array.isArray(pk) ? pk : [];
       if (!picks.length && Array.isArray(fx)) picks = fx;
-    } catch (e) {
-      error = 'No se pudo cargar la API (http://localhost:5000).';
+    } catch {
+      error = 'No se pudo cargar la API.';
     } finally {
       loading = false;
     }
@@ -55,63 +56,53 @@
 
 <svelte:head><title>{title} | Cancha</title></svelte:head>
 
-<main class="page-shell"><div class="container">
-  <header class="header">
-    <!-- <a class="back" href="/" aria-label="Volver al fixture">←</a> -->
-    <span class="display header-title">ESTADÍSTICAS</span><span class="header-spacer"></span></header>
+<main class="page-shell">
+  <div class="app-header"><div class="app-header-inner">
+    <div style="min-width:0"><div class="display app-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{title}</div><p class="app-sub">Props · {filtered.length} · {id}</p></div>
+    <a class="link-more" href="/fixture">← Fixture</a>
+  </div></div>
+  <div class="container">
 
   {#if local}
     <section class="scoreboard"><p>{local.league} · {local.date}</p><div class="score-teams"><div><span class="crest" style={`--team-color:${local.homeColor}`}>{local.homeShort}</span><strong>{local.home}</strong></div><div class="score"><span class="display">—</span><small>PRÓXIMO</small></div><div class="align-right"><span class="crest" style={`--team-color:${local.awayColor}`}>{local.awayShort}</span><strong>{local.away}</strong></div></div><div class="venue">{local.venue} · {local.time}</div></section>
   {:else if picks[0] || fixture}
-    <section class="scoreboard"><p>La Liga · {picks[0]?.game_date ?? fixture?.date ?? id}</p><div class="score-teams"><div><span class="crest">{short(picks[0]?.team ?? fixture?.home_team ?? '')}</span><strong>{picks[0]?.team ?? fixture?.home_team ?? 'Local'}</strong></div><div class="score"><span class="display">—</span><small>{id.startsWith('fwd_') ? 'PRÓXIMO' : 'VS'}</small></div><div class="align-right"><span class="crest">{short(picks[0]?.team_rival ?? fixture?.away_team ?? '')}</span><strong>{picks[0]?.team_rival ?? fixture?.away_team ?? 'Visita'}</strong></div></div><div class="venue">{id}</div></section>
+    <section class="scoreboard"><p>{picks[0]?.game_date ?? fixture?.date ?? id}</p><div class="score-teams"><div><span class="crest">{short(picks[0]?.team ?? fixture?.home_team ?? '')}</span><strong>{picks[0]?.team ?? fixture?.home_team ?? 'Local'}</strong></div><div class="score"><span class="display">—</span><small>{id.startsWith('fwd_') ? 'PRÓXIMO' : 'VS'}</small></div><div class="align-right"><span class="crest">{short(picks[0]?.team_rival ?? fixture?.away_team ?? '')}</span><strong>{picks[0]?.team_rival ?? fixture?.away_team ?? 'Visita'}</strong></div></div><div class="venue">{id}</div></section>
   {/if}
 
-  {#if loading}<p class="muted">Cargando /picks?game_id={id}…</p>
-  {:else if error && !picks.length}<div class="container empty"><h1 class="display">Partido no encontrado</h1><p class="muted">{error}</p>
-    <a href="/">Volver al fixture</a></div>
+  {#if loading}<p class="muted">Cargando props…</p>
+  {:else if error && !picks.length}<div class="empty"><h1 class="display">Partido no encontrado</h1><p class="muted">{error}</p>
+    <a href="/fixture">Volver al fixture</a></div>
   {:else}
-    <section class="stat-section">
-      <div class="section-heading"><h1 class="display">Props · {filtered.length}</h1><span>{id}</span></div>
+    <section style="margin-top:16px">
       <div class="tabs" role="tablist" aria-label="Filtrar por equipo">
         <button role="tab" aria-selected={tab === 'home'} class:active={tab === 'home'} onclick={() => (tab = 'home')}>🏠 {homeTeam || 'Local'}</button>
         <button role="tab" aria-selected={tab === 'away'} class:active={tab === 'away'} onclick={() => (tab = 'away')}>✈️ {awayTeam || 'Visita'}</button>
       </div>
       <div class="toolbar">
-        <select bind:value={mercado} aria-label="Filtrar mercado">{#each mercados as m}<option value={m}>{m === 'Todos' ? 'Todos' : etiquetaMercado(m)}</option>{/each}</select>
-        <input placeholder="Buscar jugador…" bind:value={q} />
+        <select class="select-input" bind:value={mercado} aria-label="Filtrar mercado">{#each mercados as m}<option value={m}>{m === 'Todos' ? 'Todos los mercados' : etiquetaMercado(m)}</option>{/each}</select>
+        <input class="search-input" placeholder="Buscar jugador…" bind:value={q} inputmode="search" aria-label="Buscar jugador" />
       </div>
-      <div class="stat-card">
-        {#each filtered.slice(0, 100) as p}
-          <div class="stat-row"><span>{p.player} <small>{p.localia ?? p.team} · {p.seleccion ?? `${p.mercado} ${p.linea}`}</small><br /><small class="dim">{p.promedio_esperado != null ? `Promedio ${p.promedio_esperado}` : `λ ${p.lambda_ajustado}`} · {p.contexto_rival ?? ''}{p.cuota_justa ? ` · Justa ${p.cuota_justa}` : ''}</small></span><b>{p.probabilidad_pct != null ? `${p.probabilidad_pct}%` : `${Math.round((p.prob_calibrada ?? p.prob_calculada) * 100)}%`}</b></div>
+      <div class="props-grid">
+        {#each filtered.slice(0, 100) as p, i}
+          {@const pct = probPct(p)}
+          {@const ml = p.mercado_label ?? marketLabel(p.mercado)}
+          {@const mc = marketColor(p.mercado)}
+          <article class="prop" aria-label={`${p.player} ${ml} ${p.linea} ${pct}%`}>
+            <div class="prop-top">
+              <span class="avatar" style={`--pill:${mc}`}>{initials(p.player)}</span>
+              <div style="min-width:0;flex:1"><p class="prop-name">#{i + 1} · {p.player}</p><p class="prop-meta">{p.team} · {ml} {p.linea}</p></div>
+              <span class="prob">{pct}%<small>PROB</small></span>
+            </div>
+            <div class="bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}><i style={`width:${pct}%;--pill:${mc}`}></i></div>
+            <div class="prop-foot">
+              <span class="pill" style={`--pill:${mc}`}>{p.mercado} {p.linea}</span>
+              <span class="prop-detail">{p.promedio_esperado != null ? `Prom ${p.promedio_esperado}` : p.lambda_ajustado != null ? `λ ${p.lambda_ajustado}` : ''}{p.cuota_justa ? ` · Justa ${p.cuota_justa}` : ''}</span>
+            </div>
+            {#if p.contexto_rival}<p class="prop-detail" style="margin:0">{p.contexto_rival}</p>{/if}
+          </article>
         {:else}<p class="muted">Sin picks para este partido.</p>{/each}
       </div>
     </section>
   {/if}
-  <!-- <a class="action" href="/">Ver todos los partidos <span>→</span></a> -->
-</div></main>
-
-<style>
-  .page-shell { min-height: 100vh; }
-  .header { display: flex; align-items: center; justify-content: space-between; padding: 16px 0; }
-  .back { text-decoration: none; font-size: 20px; }
-  .header-title { font-size: 13px; letter-spacing: 0.12em; }
-  .header-spacer { width: 24px; }
-  .scoreboard { border: 1px solid #252b38; border-radius: 18px; padding: 18px; background: #11141c; }
-  .score-teams { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; }
-  .align-right { text-align: right; }
-  .crest { display: inline-grid; place-items: center; width: 44px; height: 44px; border-radius: 12px; background: #18202f; margin-bottom: 6px; }
-  .venue, .muted { color: #778196; font-size: 12px; }
-  .stat-section { margin-top: 18px; }
-  .section-heading { display: flex; justify-content: space-between; align-items: baseline; }
-  .toolbar { display: flex; gap: 8px; margin: 12px 0; }
-  .tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
-  .tabs button { border: 1px solid #293140; color: #8a95a8; background: transparent; border-radius: 12px; padding: 10px; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .tabs button.active { color: #0b0d12; background: #b8f36b; border-color: #b8f36b; }
-  .toolbar select, .toolbar input { background: #151922; color: #dce3ef; border: 1px solid #252b38; border-radius: 10px; padding: 8px 10px; }
-  .stat-card { display: flex; flex-direction: column; gap: 8px; }
-  .stat-row { display: flex; justify-content: space-between; gap: 8px; border: 1px solid #252b38; border-radius: 12px; padding: 10px 12px; font-size: 13px; }
-  .stat-row small { color: #778196; }
-  .stat-row small.dim { color: #5b6478; font-size: 11px; }
-  .action { display: block; margin: 18px 0 28px; }
-  .empty { text-align: center; padding: 60px 0; }
-</style>
+  </div>
+</main>

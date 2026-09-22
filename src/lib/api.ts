@@ -1,18 +1,29 @@
 // Modo 'live' = Flask http://<host>:5000 · Modo 'static' = JSON en /api/*.json.
 // Default: live solo en dev local (http); en build prod o página https siempre static
 // (el browser bloquea http://host:5000 desde https por contenido mixto).
-// Override solo con VITE_API_MODE.
-const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
-const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+// Override solo con VITE_API_MODE o ?api=live|static (solo cliente, para no romper SSR).
+import { browser } from '$app/environment';
+
+const host = browser ? window.location.hostname : 'localhost';
 export const API_BASE = `http://${host}:5000`;
+
 const _env = import.meta.env.VITE_API_MODE as 'live' | 'static' | '' | undefined;
 // '' (variable vacía en Vercel) se trata como no definida: ?? no filtra strings vacíos
-const ENV_MODE: 'live' | 'static' | undefined = _env === 'live' || _env === 'static' ? _env : undefined;
-export const MODE: 'live' | 'static' = ENV_MODE ?? (import.meta.env.PROD || isHttps ? 'static' : 'live');
+const ENV_MODE: 'live' | 'static' | undefined =
+	_env === 'live' || _env === 'static' ? _env : undefined;
+
+function baseMode(): 'live' | 'static' {
+	if (ENV_MODE) return ENV_MODE;
+	if (import.meta.env.PROD) return 'static';
+	if (browser && window.location.protocol === 'https:') return 'static';
+	return 'live';
+}
+
+export const MODE: 'live' | 'static' = baseMode();
 const STATIC_BASE = import.meta.env.VITE_STATIC_BASE ?? '';
 
-// Override manual para debug: ?api=live | ?api=static
 function queryOverride(): 'live' | 'static' | null {
+	if (!browser) return null;
 	try {
 		const v = new URLSearchParams(window.location.search).get('api');
 		return v === 'live' || v === 'static' ? v : null;
@@ -20,9 +31,15 @@ function queryOverride(): 'live' | 'static' | null {
 		return null;
 	}
 }
-export const EFFECTIVE_MODE: 'live' | 'static' =
-	typeof window !== 'undefined' ? (queryOverride() ?? MODE) : MODE;
-if (typeof window !== 'undefined') console.info(`[api] mode=${EFFECTIVE_MODE} (base=${MODE})`);
+
+/** Llamar en runtime (dentro de load/onMount), no a nivel módulo, para evitar hydration mismatch. */
+export function effectiveMode(): 'live' | 'static' {
+	return queryOverride() ?? MODE;
+}
+
+/** Compat: valor solo-cliente calculado bajo demanda. */
+export const EFFECTIVE_MODE: 'live' | 'static' = MODE;
+if (browser) console.info(`[api] mode=${effectiveMode()} (base=${MODE})`);
 
 export type ApiFixture = {
 	game_id: string;
@@ -35,48 +52,69 @@ export type ApiFixture = {
 	league?: string;
 };
 
+function safeSlice<T>(v: unknown, limit: number, fallback: T[] = []): T[] {
+	if (!Array.isArray(v)) return fallback;
+	return (v as T[]).slice(0, limit);
+}
+
 async function getJSON(url: string, fallback: any = []) {
-	const res = await fetch(url);
-	if (!res.ok) return fallback;
-	return res.json();
+	try {
+		const res = await fetch(url);
+		if (!res.ok) return fallback;
+		return await res.json();
+	} catch {
+		return fallback;
+	}
 }
 
 export async function fetchFixtures(limit = 20): Promise<ApiFixture[]> {
-	if (EFFECTIVE_MODE === 'static') return getJSON(`${STATIC_BASE}/api/fixtures.json`).then((r) => r.slice(0, limit));
+	if (effectiveMode() === 'static') return safeSlice(await getJSON(`${STATIC_BASE}/api/fixtures.json`), limit);
 	const res = await fetch(`${API_BASE}/fixtures?limit=${limit}`);
 	if (!res.ok) throw new Error(`API ${res.status}`);
-	return res.json();
+	const data = await res.json();
+	return Array.isArray(data) ? data.slice(0, limit) : [];
 }
 
 export async function fetchFixturesByDate(fecha: string, limit = 100): Promise<ApiFixture[]> {
-	if (EFFECTIVE_MODE === 'static') return getJSON(`${STATIC_BASE}/api/fixtures-${fecha}.json`).then((r) => r.slice(0, limit));
+	if (effectiveMode() === 'static')
+		return safeSlice(await getJSON(`${STATIC_BASE}/api/fixtures-${fecha}.json`), limit);
 	const res = await fetch(`${API_BASE}/fixtures?fecha=${fecha}&limit=${limit}`);
 	if (!res.ok) throw new Error(`API ${res.status}`);
-	return res.json();
+	const data = await res.json();
+	return Array.isArray(data) ? data.slice(0, limit) : [];
 }
 
 export async function fetchPicksByDate(fecha: string, limit = 5000): Promise<any[]> {
-	if (EFFECTIVE_MODE === 'static') return getJSON(`${STATIC_BASE}/api/picks-${fecha}.json`).then((r) => r.slice(0, limit));
+	if (effectiveMode() === 'static')
+		return safeSlice(await getJSON(`${STATIC_BASE}/api/picks-${fecha}.json`), limit);
 	const res = await fetch(`${API_BASE}/picks?fecha=${fecha}&limit=${limit}`);
 	if (!res.ok) throw new Error(`API ${res.status}`);
-	return res.json();
+	const data = await res.json();
+	return Array.isArray(data) ? data.slice(0, limit) : [];
 }
 
 export async function fetchPicksByGame(game_id: string, limit = 500): Promise<any[]> {
-	if (EFFECTIVE_MODE === 'static') return getJSON(`${STATIC_BASE}/api/game-${game_id}.json`).then((r) => r.slice(0, limit));
+	if (effectiveMode() === 'static')
+		return safeSlice(await getJSON(`${STATIC_BASE}/api/game-${game_id}.json`), limit);
 	const res = await fetch(`${API_BASE}/picks?game_id=${encodeURIComponent(game_id)}&limit=${limit}`);
 	if (!res.ok) throw new Error(`API ${res.status}`);
-	return res.json();
+	const data = await res.json();
+	return Array.isArray(data) ? data.slice(0, limit) : [];
 }
 
 export async function fetchFixture(game_id: string): Promise<any> {
-	if (EFFECTIVE_MODE === 'static') return getJSON(`${STATIC_BASE}/api/fixture-${game_id}.json`, null);
+	if (effectiveMode() === 'static')
+		return getJSON(`${STATIC_BASE}/api/fixture-${game_id}.json`, null);
 	const res = await fetch(`${API_BASE}/fixture/${encodeURIComponent(game_id)}`);
 	if (!res.ok) throw new Error(`API ${res.status}`);
 	return res.json();
 }
 
 export async function fetchDates(): Promise<string[]> {
-	if (EFFECTIVE_MODE === 'static') return getJSON(`${STATIC_BASE}/api/dates.json`, []);
+	if (effectiveMode() === 'static') {
+		const v = await getJSON(`${STATIC_BASE}/api/dates.json`, []);
+		return Array.isArray(v) ? v : [];
+	}
+	// En live el backend no expone /dates: se retorna [] y la UI lo maneja.
 	return [];
 }

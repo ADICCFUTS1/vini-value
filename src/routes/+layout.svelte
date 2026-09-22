@@ -1,5 +1,6 @@
 <script lang="ts">
   import '../app.css'
+  import BottomNav from '$lib/BottomNav.svelte'
 
   let { children } = $props()
 </script>
@@ -11,3 +12,4 @@
 </svelte:head>
 
 {@render children()}
+<BottomNav />
