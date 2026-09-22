@@ -1,10 +1,13 @@
 // Modo 'live' = Flask http://<host>:5000 · Modo 'static' = JSON en /api/*.json.
-// Default: live en dev, static en build prod (Vercel). Override con VITE_API_MODE.
+// Default: live solo en dev local (http); en build prod o página https siempre static
+// (el browser bloquea http://host:5000 desde https por contenido mixto).
+// Override solo con VITE_API_MODE.
+const isHttps = typeof window !== 'undefined' && window.location.protocol === 'https:';
 const host = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
 export const API_BASE = `http://${host}:5000`;
 export const MODE: 'live' | 'static' =
 	(import.meta.env.VITE_API_MODE as 'live' | 'static' | undefined) ??
-	(import.meta.env.PROD ? 'static' : 'live');
+	(import.meta.env.PROD || isHttps ? 'static' : 'live');
 const STATIC_BASE = import.meta.env.VITE_STATIC_BASE ?? '';
 
 export type ApiFixture = {
