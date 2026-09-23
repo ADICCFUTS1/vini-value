@@ -118,3 +118,14 @@ export async function fetchDates(): Promise<string[]> {
 	// En live el backend no expone /dates: se retorna [] y la UI lo maneja.
 	return [];
 }
+
+export async function fetchLineupsByGame(game_id: string): Promise<any[]> {
+	if (effectiveMode() === 'static') {
+		const v = await getJSON(`${STATIC_BASE}/api/lineup-${game_id}.json`, []);
+		return Array.isArray(v) ? v : [];
+	}
+	const res = await fetch(`${API_BASE}/lineups?game_id=${encodeURIComponent(game_id)}`);
+	if (!res.ok) throw new Error(`API ${res.status}`);
+	const data = await res.json();
+	return Array.isArray(data) ? data : [];
+}

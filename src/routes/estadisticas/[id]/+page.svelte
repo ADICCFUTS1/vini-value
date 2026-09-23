@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { page } from '$app/state';
   import { getMatch } from '$lib/matches';
+  import BackButton from '$lib/BackButton.svelte';
   import { fetchPicksByGame, fetchFixture } from '$lib/api';
   import { marketLabel, marketColor, initials, probPct } from '$lib/markets';
 
@@ -29,6 +30,10 @@
   const etiquetaMercado = (m: string) => picks.find((p) => p.mercado === m)?.mercado_label ?? marketLabel(m);
   let homeTeam = $derived(picks.find((p) => p.is_home === 1)?.team ?? fixture?.home_team ?? picks[0]?.team ?? '');
   let awayTeam = $derived(picks.find((p) => p.is_home === 0)?.team ?? fixture?.away_team ?? picks[0]?.team_rival ?? '');
+  // Fallback solo para apertura directa (sin historial): vuelve a mercados de esa fecha
+  let backFallback = $derived(
+    picks[0]?.game_date ? `/mercados?fecha=${picks[0].game_date}` : '/fixture'
+  );
   let tab = $state<'home' | 'away'>('home');
   let tabTeam = $derived(tab === 'home' ? homeTeam : awayTeam);
   let filtered = $derived(
@@ -39,6 +44,18 @@
         (!q || String(p.player ?? '').toLowerCase().includes(q.toLowerCase()))
     ).sort((a, b) => (b.prob_calibrada ?? b.prob_calculada ?? 0) - (a.prob_calibrada ?? a.prob_calculada ?? 0))
   );
+  let limit = $state(10);
+  const PAGE = 10;
+  let shown = $derived(filtered.slice(0, limit));
+  let remaining = $derived(filtered.length - shown.length);
+
+  // Al cambiar de equipo, mercado o búsqueda se vuelve a las primeras 10
+  $effect(() => {
+    void tab;
+    void mercado;
+    void q;
+    limit = PAGE;
+  });
 
   onMount(async () => {
     try {
@@ -59,7 +76,7 @@
 <main class="page-shell">
   <div class="app-header"><div class="app-header-inner">
     <div style="min-width:0"><div class="display app-title" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{title}</div><p class="app-sub">Props · {filtered.length} · {id}</p></div>
-    <a class="link-more" href="/fixture">← Fixture</a>
+    <BackButton fallback={backFallback} />
   </div></div>
   <div class="container">
 
@@ -82,8 +99,9 @@
         <select class="select-input" bind:value={mercado} aria-label="Filtrar mercado">{#each mercados as m}<option value={m}>{m === 'Todos' ? 'Todos los mercados' : etiquetaMercado(m)}</option>{/each}</select>
         <input class="search-input" placeholder="Buscar jugador…" bind:value={q} inputmode="search" aria-label="Buscar jugador" />
       </div>
+      <p class="muted">Mostrando {shown.length} de {filtered.length} props</p>
       <div class="props-grid">
-        {#each filtered.slice(0, 100) as p, i}
+        {#each shown as p, i}
           {@const pct = probPct(p)}
           {@const ml = p.mercado_label ?? marketLabel(p.mercado)}
           {@const mc = marketColor(p.mercado)}
@@ -102,6 +120,11 @@
           </article>
         {:else}<p class="muted">Sin picks para este partido.</p>{/each}
       </div>
+      {#if remaining > 0}
+        <div style="display:flex;justify-content:center;margin:20px 0 8px">
+          <button class="cta" onclick={() => (limit += PAGE)}>Cargar más ({remaining} restantes)</button>
+        </div>
+      {/if}
     </section>
   {/if}
   </div>

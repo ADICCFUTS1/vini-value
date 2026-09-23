@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { page } from '$app/state';
   import MatchCard from '$lib/MatchCard.svelte';
+  import BackButton from '$lib/BackButton.svelte';
   import type { Match } from '$lib/matches';
   import { fetchFixturesByDate, fetchPicksByDate } from '$lib/api';
   import { ligaName, toUniqueMatches, todayISO } from '$lib/fixtures';
@@ -14,13 +15,18 @@
   let loading = $state(true);
   let error = $state('');
   let liga = $state('Todas');
+  let limit = $state(10);
+  const PAGE = 10;
 
   let ligas = $derived(['Todas', ...new Set(items.map((m) => m.league))]);
   let visible = $derived(liga === 'Todas' ? items : items.filter((m) => m.league === liga));
+  let paginated = $derived(visible.slice(0, limit));
+  let remaining = $derived(visible.length - paginated.length);
 
   async function load(d: string) {
     loading = true;
     error = '';
+    limit = PAGE;
     try {
       const [fr, pr] = await Promise.all([fetchFixturesByDate(d, 100), fetchPicksByDate(d, 5000)]);
       items = toUniqueMatches(fr);
@@ -48,14 +54,16 @@
 <main class="page-shell">
   <div class="app-header"><div class="app-header-inner">
     <div><div class="display app-title">MERCADOS</div><p class="app-sub">{fecha} · top picks por partido</p></div>
+    <BackButton fallback="/fixture" />
   </div></div>
   <div class="container">
   <div style="margin:14px 0"><input class="date-input" type="date" bind:value={fecha} onchange={() => load(fecha)} aria-label="Fecha" /></div>
   {#if loading}<p class="muted">Cargando mercados {fecha}…</p>
   {:else if error}<p class="muted">{error}</p>
   {:else}
-    <nav class="filters" aria-label="Filtrar liga">{#each ligas as l}<button class:active={liga === l} aria-pressed={liga === l} onclick={() => (liga = l)}>{ligaName(l)}</button>{/each}</nav>
-    <div class="cards">{#each visible as match}
+    <nav class="filters" aria-label="Filtrar liga">{#each ligas as l}<button class:active={liga === l} aria-pressed={liga === l} onclick={() => { liga = l; limit = PAGE; }}>{ligaName(l)}</button>{/each}</nav>
+    <p class="muted">Mostrando {paginated.length} de {visible.length} partidos</p>
+    <div class="cards">{#each paginated as match}
       <section class="match-section" aria-label={`${match.home} contra ${match.away}`}>
         <MatchCard {match} />
         <div class="props-grid">
@@ -79,6 +87,11 @@
         <div class="match-section-head"><span class="muted">{(tops[match.id] ?? []).length} destacados</span><a class="link-more" href={`/estadisticas/${match.id}`}>Ver todos →</a></div>
       </section>
     {/each}</div>
+    {#if remaining > 0}
+      <div style="display:flex;justify-content:center;margin:20px 0 8px">
+        <button class="cta" onclick={() => (limit += PAGE)}>Cargar más ({remaining} restantes)</button>
+      </div>
+    {/if}
   {/if}
   </div>
 </main>
