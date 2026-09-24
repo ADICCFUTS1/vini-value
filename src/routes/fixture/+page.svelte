@@ -60,7 +60,7 @@
   {:else if !items.length}
     <p class="muted">Hoy no hay partidos ({shownDate}).</p>
     {#if nextDate}<button class="cta" onclick={() => load(nextDate)}>Ver próxima fecha: {nextDate}</button>{/if}
-    <p class="muted">Ver cuotas y picks en <a class="link-more" href={`/mercados?fecha=${shownDate}`}>Mercados →</a></p>
+    <p class="muted">Ver fixture completo diario en <a class="link-more" href={`/fixture/full`}>FULL →</a></p>
   {:else}
     <div class="section-heading"><h2 class="display">{visible.length} partidos</h2><span>{shownDate}</span></div>
     <nav class="filters" aria-label="Filtrar liga">{#each ligas as l}<button class:active={liga === l} aria-pressed={liga === l} onclick={() => (liga = l)}>{ligaName(l)}</button>{/each}</nav>
