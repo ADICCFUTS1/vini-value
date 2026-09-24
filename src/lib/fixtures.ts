@@ -11,9 +11,16 @@ export function ligaName(l: string): string {
 	return l;
 }
 
+/** "2–0" (con guion, en-dash o em-dash) -> [2, 0]. null si no hay resultado. */
+export function parseScore(s: string | undefined | null): [number, number] | null {
+	const m = /^(\d+)\s*[–—-]\s*(\d+)$/.exec((s ?? '').trim());
+	return m ? [Number(m[1]), Number(m[2])] : null;
+}
+
 export function toMatch(f: ApiFixture): Match {
+	const score = parseScore(f.score);
 	return {
-		id: String(f.game_id),
+		id: String(f.game_id || `${f.date ?? ''}|${f.home_team ?? ''}|${f.away_team ?? ''}`),
 		league: String(f.league ?? 'La Liga'),
 		date: String(f.date ?? ''),
 		time: f.time ?? '',
@@ -23,16 +30,19 @@ export function toMatch(f: ApiFixture): Match {
 		awayShort: shortName(f.away_team ?? ''),
 		homeColor: '#1554a0',
 		awayColor: '#e72c45',
-		status: 'upcoming',
+		status: score ? 'finished' : 'upcoming',
+		score: score ?? undefined,
 		venue: f.venue ?? ''
 	};
 }
 
-/** Dedupe por game_id + sort por hora + map a Match. */
+/** Dedupe por game_id (o fecha|local|visitante si el futuro aun no tiene id)
+ *  + sort por hora + map a Match. */
 export function toUniqueMatches(rows: ApiFixture[]): Match[] {
 	const seen = new Map<string, ApiFixture>();
 	for (const f of rows) {
-		if (f?.game_id && !seen.has(f.game_id)) seen.set(f.game_id, f);
+		const key = f?.game_id || `${f?.date}|${f?.home_team}|${f?.away_team}`;
+		if (key && !seen.has(key)) seen.set(key, f);
 	}
 	return [...seen.values()]
 		.sort((a, b) => String(a.time ?? '').localeCompare(String(b.time ?? '')))

@@ -1,14 +1,15 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { goto } from '$app/navigation';
   import { page } from '$app/state';
   import MatchCard from '$lib/MatchCard.svelte';
   import BackButton from '$lib/BackButton.svelte';
   import type { Match } from '$lib/matches';
-  import { fetchFixturesByDate, fetchPicksByDate } from '$lib/api';
+  import { fetchFixturesByDate, fetchPicksByDate, fetchToday } from '$lib/api';
   import { ligaName, toUniqueMatches, todayISO } from '$lib/fixtures';
   import { marketLabel, marketColor, initials, probPct } from '$lib/markets';
 
-  const hoy = todayISO();
+  const hoy = todayISO(); // fallback: reloj local (en static se usa la fecha del export)
   let fecha = $state(page.url.searchParams.get('fecha') ?? hoy);
   let items = $state<Match[]>([]);
   let tops = $state<Record<string, any[]>>({});
@@ -23,12 +24,16 @@
   let paginated = $derived(visible.slice(0, limit));
   let remaining = $derived(visible.length - paginated.length);
 
+  // seq descarta respuestas viejas al cambiar la fecha rápido dos veces
+  let seq = 0;
   async function load(d: string) {
+    const my = ++seq;
     loading = true;
     error = '';
     limit = PAGE;
     try {
       const [fr, pr] = await Promise.all([fetchFixturesByDate(d, 100), fetchPicksByDate(d, 5000)]);
+      if (my !== seq) return;
       items = toUniqueMatches(fr);
       const by: Record<string, any[]> = {};
       for (const p of pr) {
@@ -38,15 +43,23 @@
         by[k] = by[k].sort((a, b) => (b.prob_calibrada ?? b.prob_calculada ?? 0) - (a.prob_calibrada ?? a.prob_calculada ?? 0)).slice(0, 3);
       tops = by;
     } catch {
+      if (my !== seq) return;
       error = 'API no disponible.';
       items = [];
       tops = {};
     } finally {
-      loading = false;
+      if (my === seq) loading = false;
     }
   }
 
-  onMount(() => load(fecha));
+  onMount(async () => {
+    // Sin ?fecha= explicita, "hoy" es la fecha del export (static), no el reloj del navegador
+    if (!page.url.searchParams.get('fecha')) {
+      const ref = await fetchToday();
+      if (ref) fecha = ref;
+    }
+    await load(fecha);
+  });
 </script>
 
 <svelte:head><title>Mercados {fecha} | Cancha</title></svelte:head>
@@ -57,9 +70,10 @@
     <BackButton fallback="/fixture" />
   </div></div>
   <div class="container">
-  <div style="margin:14px 0"><input class="date-input" type="date" bind:value={fecha} onchange={() => load(fecha)} aria-label="Fecha" /></div>
+  <div style="margin:14px 0"><input class="date-input" type="date" bind:value={fecha} onchange={() => { goto(`/mercados?fecha=${fecha}`, { replaceState: true, keepFocus: true, noScroll: true }); load(fecha); }} aria-label="Fecha" /></div>
   {#if loading}<p class="muted">Cargando mercados {fecha}…</p>
   {:else if error}<p class="muted">{error}</p>
+  {:else if !items.length}<p class="muted">Sin partidos ni picks para {fecha}.</p>
   {:else}
     <nav class="filters" aria-label="Filtrar liga">{#each ligas as l}<button class:active={liga === l} aria-pressed={liga === l} onclick={() => { liga = l; limit = PAGE; }}>{ligaName(l)}</button>{/each}</nav>
     <p class="muted">Mostrando {paginated.length} de {visible.length} partidos</p>

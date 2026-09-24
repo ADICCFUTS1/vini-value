@@ -2,40 +2,50 @@
   import { onMount } from 'svelte';
   import MatchCard from '$lib/MatchCard.svelte';
   import type { Match } from '$lib/matches';
-  import { fetchFixturesByDate, fetchDates } from '$lib/api';
+  import { fetchFixturesByDate, fetchDates, fetchToday } from '$lib/api';
   import { ligaName, toUniqueMatches, todayISO } from '$lib/fixtures';
 
-  const fecha = todayISO();
+  const hoy = todayISO(); // fallback: reloj local (en static se usa la fecha del export)
   let items = $state<Match[]>([]);
   let loading = $state(true);
   let error = $state('');
   let liga = $state('Todas');
-  let shownDate = $state(fecha);
+  let shownDate = $state(hoy);
   let nextDate = $state('');
 
   let ligas = $derived(['Todas', ...new Set(items.map((m) => m.league))]);
   let visible = $derived(liga === 'Todas' ? items : items.filter((m) => m.league === liga));
 
+  // seq descarta respuestas viejas si el usuario clickea "próxima fecha" dos veces
+  let seq = 0;
   async function load(d: string) {
+    const my = ++seq;
     loading = true;
     error = '';
     shownDate = d;
     nextDate = '';
     try {
-      items = toUniqueMatches(await fetchFixturesByDate(d, 100));
+      const rows = await fetchFixturesByDate(d, 100);
+      if (my !== seq) return;
+      items = toUniqueMatches(rows);
     } catch {
+      if (my !== seq) return;
       error = 'API no disponible.';
       items = [];
     } finally {
-      loading = false;
+      if (my === seq) loading = false;
     }
     if (!items.length && !error) {
       const dates = await fetchDates();
+      if (my !== seq) return;
       nextDate = dates.find((x) => x > d) ?? '';
     }
   }
 
-  onMount(() => load(fecha));
+  onMount(async () => {
+    const ref = await fetchToday();
+    await load(ref ?? hoy);
+  });
 </script>
 
 <svelte:head><title>Fixture del día {shownDate} | Cancha</title></svelte:head>

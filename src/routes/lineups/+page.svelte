@@ -1,19 +1,18 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { fetchLineupsByGame } from '$lib/api';
+  import { fetchLineup } from '$lib/api';
 
   let gameId = $derived(page.url.searchParams.get('game_id') ?? '');
   let rows = $state<any[]>([]);
   let loading = $state(true);
 
-  async function load(g: string) {
-    loading = true;
-    rows = g ? await fetchLineupsByGame(g) : [];
-    loading = false;
-  }
-
+  // fetchLineup nunca tira, pero el finally garantiza que loading no quede colgado
   $effect(() => {
-    load(gameId);
+    const g = gameId;
+    loading = true;
+    fetchLineup(g)
+      .then((r) => (rows = r))
+      .finally(() => (loading = false));
   });
 
   let teams = $derived([...new Set(rows.map((r) => r.team))]);

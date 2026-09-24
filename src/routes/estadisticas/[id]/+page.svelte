@@ -1,39 +1,51 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
   import { page } from '$app/state';
-  import { getMatch } from '$lib/matches';
   import BackButton from '$lib/BackButton.svelte';
-  import { fetchPicksByGame, fetchFixture } from '$lib/api';
+  import { fetchPicksByGame, fetchFixture, fetchLineup } from '$lib/api';
+  import { shortName } from '$lib/fixtures';
   import { marketLabel, marketColor, initials, probPct } from '$lib/markets';
 
   const id = $derived(page.params.id ?? '');
-  const local = $derived(getMatch(id));
   let picks = $state<any[]>([]);
   let fixture = $state<any>(null);
+  let lineup = $state<any[]>([]);
   let loading = $state(true);
   let error = $state('');
   let mercado = $state('Todos');
   let q = $state('');
 
-  const short = (n: string) => (n ?? '').replace(/[^A-Za-z]/g, '').slice(0, 3).toUpperCase() || '???';
-  let title = $derived(local ? `${local.home} vs ${local.away}` : fixtureTitle());
-  function fixtureTitle() {
-    if (Array.isArray(fixture) && fixture[0]) {
-      const allTeams = [...new Set(fixture.flatMap((p: any) => [p.team, p.team_rival]))];
-      return allTeams.slice(0, 2).join(' vs ');
-    }
-    if (fixture?.home_team) return `${fixture.home_team} vs ${fixture.away_team}`;
-    if (picks[0]) return `${picks[0].team} vs ${picks[0].team_rival}`;
-    return id;
-  }
-  let mercados = $derived(['Todos', ...new Set(picks.map((p) => p.mercado))]);
-  const etiquetaMercado = (m: string) => picks.find((p) => p.mercado === m)?.mercado_label ?? marketLabel(m);
+  // Título y scoreboard usan la localía real (is_home), no el primer pick por probabilidad
   let homeTeam = $derived(picks.find((p) => p.is_home === 1)?.team ?? fixture?.home_team ?? picks[0]?.team ?? '');
   let awayTeam = $derived(picks.find((p) => p.is_home === 0)?.team ?? fixture?.away_team ?? picks[0]?.team_rival ?? '');
+  let title = $derived(homeTeam && awayTeam ? `${homeTeam} vs ${awayTeam}` : id);
+  let mercados = $derived(['Todos', ...new Set(picks.map((p) => p.mercado))]);
+  const etiquetaMercado = (m: string) => picks.find((p) => p.mercado === m)?.mercado_label ?? marketLabel(m);
   // Fallback solo para apertura directa (sin historial): vuelve a mercados de esa fecha
   let backFallback = $derived(
     picks[0]?.game_date ? `/mercados?fecha=${picks[0].game_date}` : '/fixture'
   );
+
+  // ---- Formaciones (titulares + suplentes por equipo) ----
+  function xiFor(team: string, orderIdx: number, startersOnly: boolean) {
+    const rows = lineup.filter((p) => (startersOnly ? p.is_starter === 1 : p.is_starter !== 1));
+    if (team) {
+      const t = rows.filter((p) => p.team === team);
+      if (t.length) return t;
+    }
+    const teams = [...new Set(rows.map((p) => p.team))];
+    const key = teams[orderIdx] ?? teams[0];
+    return rows.filter((p) => p.team === key);
+  }
+  let homeXI = $derived(xiFor(homeTeam, 0, true));
+  let awayXI = $derived(xiFor(awayTeam, 1, true));
+  let homeBench = $derived(xiFor(homeTeam, 0, false));
+  let awayBench = $derived(xiFor(awayTeam, 1, false));
+  function shape(xi: any[]): string {
+    const def = xi.filter((p) => ['RB', 'LB', 'CB', 'DF', 'LWB', 'RWB'].includes(p.position)).length;
+    const mid = xi.filter((p) => ['DM', 'CM', 'AM', 'RM', 'LM', 'MF'].includes(p.position)).length;
+    const att = xi.filter((p) => ['FW', 'LW', 'RW'].includes(p.position)).length;
+    return def || mid || att ? `${def}-${mid}-${att}` : '';
+  }
   let tab = $state<'home' | 'away'>('home');
   let tabTeam = $derived(tab === 'home' ? homeTeam : awayTeam);
   let filtered = $derived(
@@ -57,17 +69,34 @@
     limit = PAGE;
   });
 
-  onMount(async () => {
-    try {
-      const [fx, pk] = await Promise.all([fetchFixture(id).catch(() => null), fetchPicksByGame(id)]);
+  // Carga reactiva al id: navegar de un partido a otro (SPA) recarga todo.
+  // seq descarta respuestas viejas si el id cambia mientras vuela un fetch.
+  let seq = 0;
+  $effect(() => {
+    const gid = id;
+    if (!gid) return;
+    const my = ++seq;
+    loading = true;
+    error = '';
+    picks = [];
+    fixture = null;
+    lineup = [];
+    mercado = 'Todos';
+    q = '';
+    tab = 'home';
+    (async () => {
+      const [fx, pk, lu] = await Promise.all([
+        fetchFixture(gid),
+        fetchPicksByGame(gid).catch(() => []),
+        fetchLineup(gid)
+      ]);
+      if (my !== seq) return; // llegó tarde: ya hay una carga más nueva
       fixture = fx;
       picks = Array.isArray(pk) ? pk : [];
-      if (!picks.length && Array.isArray(fx)) picks = fx;
-    } catch {
-      error = 'No se pudo cargar la API.';
-    } finally {
+      lineup = Array.isArray(lu) ? lu : [];
+      if (!picks.length && !fixture) error = 'No se pudo cargar la API.';
       loading = false;
-    }
+    })();
   });
 </script>
 
@@ -80,10 +109,32 @@
   </div></div>
   <div class="container">
 
-  {#if local}
-    <section class="scoreboard"><p>{local.league} · {local.date}</p><div class="score-teams"><div><span class="crest" style={`--team-color:${local.homeColor}`}>{local.homeShort}</span><strong>{local.home}</strong></div><div class="score"><span class="display">—</span><small>PRÓXIMO</small></div><div class="align-right"><span class="crest" style={`--team-color:${local.awayColor}`}>{local.awayShort}</span><strong>{local.away}</strong></div></div><div class="venue">{local.venue} · {local.time}</div></section>
-  {:else if picks[0] || fixture}
-    <section class="scoreboard"><p>{picks[0]?.game_date ?? fixture?.date ?? id}</p><div class="score-teams"><div><span class="crest">{short(picks[0]?.team ?? fixture?.home_team ?? '')}</span><strong>{picks[0]?.team ?? fixture?.home_team ?? 'Local'}</strong></div><div class="score"><span class="display">—</span><small>{id.startsWith('fwd_') ? 'PRÓXIMO' : 'VS'}</small></div><div class="align-right"><span class="crest">{short(picks[0]?.team_rival ?? fixture?.away_team ?? '')}</span><strong>{picks[0]?.team_rival ?? fixture?.away_team ?? 'Visita'}</strong></div></div><div class="venue">{id}</div></section>
+  {#if homeTeam || awayTeam}
+    <section class="scoreboard"><p>{picks[0]?.game_date ?? fixture?.date ?? id}</p><div class="score-teams"><div><span class="crest">{shortName(homeTeam)}</span><strong>{homeTeam || 'Local'}</strong></div><div class="score"><span class="display">—</span><small>{id.startsWith('fwd_') ? 'PRÓXIMO' : 'VS'}</small></div><div class="align-right"><span class="crest">{shortName(awayTeam)}</span><strong>{awayTeam || 'Visita'}</strong></div></div><div class="venue">{id}</div></section>
+  {/if}
+
+  {#if lineup.length}
+    <section class="lineup" aria-label="Formaciones">
+      <div class="section-heading"><h2 class="display">Formaciones</h2><span>{homeXI.length + awayXI.length} titulares</span></div>
+      <div class="lineup-grid">
+        {#each [{ name: homeTeam || 'Local', xi: homeXI, bench: homeBench }, { name: awayTeam || 'Visita', xi: awayXI, bench: awayBench }] as col}
+          <div class="lineup-col">
+            <div class="lineup-head"><strong>{col.name}</strong>{#if shape(col.xi)}<span class="pill" style="--pill:#b8f36b">{shape(col.xi)}</span>{/if}</div>
+            <ul>
+              {#each col.xi as p}<li><span class="jersey">{p.jersey_number ?? '–'}</span><span class="lname">{p.player}</span><span class="pos">{p.position ?? ''}</span></li>{/each}
+            </ul>
+            {#if col.bench.length}
+              <details>
+                <summary>Suplentes ({col.bench.length})</summary>
+                <ul>
+                  {#each col.bench as p}<li><span class="jersey">{p.jersey_number ?? '–'}</span><span class="lname">{p.player}{p.minutes_played ? ` · ${p.minutes_played}'` : ''}</span><span class="pos">{p.position ?? ''}</span></li>{/each}
+                </ul>
+              </details>
+            {/if}
+          </div>
+        {/each}
+      </div>
+    </section>
   {/if}
 
   {#if loading}<p class="muted">Cargando props…</p>
@@ -92,8 +143,8 @@
   {:else}
     <section style="margin-top:16px">
       <div class="tabs" role="tablist" aria-label="Filtrar por equipo">
-        <button role="tab" aria-selected={tab === 'home'} class:active={tab === 'home'} onclick={() => (tab = 'home')}>🏠 {homeTeam || 'Local'}</button>
-        <button role="tab" aria-selected={tab === 'away'} class:active={tab === 'away'} onclick={() => (tab = 'away')}>✈️ {awayTeam || 'Visita'}</button>
+        <button role="tab" aria-selected={tab === 'home'} class:active={tab === 'home'} onclick={() => (tab = 'home')}><span aria-hidden="true">🏠</span> {homeTeam || 'Local'}</button>
+        <button role="tab" aria-selected={tab === 'away'} class:active={tab === 'away'} onclick={() => (tab = 'away')}><span aria-hidden="true">✈️</span> {awayTeam || 'Visita'}</button>
       </div>
       <div class="toolbar">
         <select class="select-input" bind:value={mercado} aria-label="Filtrar mercado">{#each mercados as m}<option value={m}>{m === 'Todos' ? 'Todos los mercados' : etiquetaMercado(m)}</option>{/each}</select>
@@ -111,7 +162,7 @@
               <div style="min-width:0;flex:1"><p class="prop-name">#{i + 1} · {p.player}</p><p class="prop-meta">{p.team} · {ml} {p.linea}</p></div>
               <span class="prob">{pct}%<small>PROB</small></span>
             </div>
-            <div class="bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}><i style={`width:${pct}%;--pill:${mc}`}></i></div>
+            <div class="bar" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100} aria-label={`Probabilidad ${pct}%`}><i style={`width:${pct}%;--pill:${mc}`}></i></div>
             <div class="prop-foot">
               <span class="pill" style={`--pill:${mc}`}>{p.mercado} {p.linea}</span>
               <span class="prop-detail">{p.promedio_esperado != null ? `Prom ${p.promedio_esperado}` : p.lambda_ajustado != null ? `λ ${p.lambda_ajustado}` : ''}{p.cuota_justa ? ` · Justa ${p.cuota_justa}` : ''}</span>
@@ -129,3 +180,19 @@
   {/if}
   </div>
 </main>
+
+<style>
+  .lineup { margin-top: 16px; padding: 16px; border: 1px solid #1d2432; border-radius: 22px; background: #0e1219; }
+  .lineup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .lineup-col { min-width: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--card); padding: 12px; }
+  .lineup-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+  .lineup-head strong { font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lineup-col ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+  .lineup-col li { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .jersey { width: 28px; height: 28px; flex: none; display: grid; place-items: center; border-radius: 10px; font-size: 0.75rem; font-weight: 800; color: #0b0d12; background: #b8f36b; }
+  .lname { flex: 1; min-width: 0; font-size: 0.82rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pos { flex: none; font-size: 0.68rem; font-weight: 800; color: #8b96a9; }
+  .lineup-col details { margin-top: 8px; }
+  .lineup-col summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; color: var(--accent); font-size: 0.85rem; font-weight: 800; }
+  @media (min-width: 1080px) { .lname { font-size: 0.9rem; } }
+</style>

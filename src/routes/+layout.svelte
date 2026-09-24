@@ -1,7 +1,5 @@
 <script lang="ts">
   import '../app.css'
-  // BottomNav deshabilitada por ahora (no se usa: Fixture / Mercados)
-  // import BottomNav from '$lib/BottomNav.svelte'
 
   let { children } = $props()
 </script>
@@ -13,4 +11,3 @@
 </svelte:head>
 
 {@render children()}
-<!-- <BottomNav /> -->
